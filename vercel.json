@@ -1,11 +1,15 @@
 {
   "rewrites": [
     {
-      "source": "/feedback/:token",
+      "source": "/",
       "destination": "/feedback.html"
     },
     {
       "source": "/feedback",
+      "destination": "/feedback.html"
+    },
+    {
+      "source": "/feedback/:token",
       "destination": "/feedback.html"
     }
   ]
