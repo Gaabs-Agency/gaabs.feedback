@@ -83,6 +83,4 @@ Typography: Arial (body) + Neuzeit Grotesk (display)
 Palette: Black `#111110` / White `#ffffff` / Accent lines: green (keep), red (change), amber (unclear)
 Design language: Swiss Grid, minimal, content-first
 ---
-Maintained by: Linux Powers (E2-09) + Mila Pavlova  
-PM: Rebecca  
-Deadline: 13.05.2026 | Board Meeting: 18.05.2026
+Maintained by: Rebecca  
