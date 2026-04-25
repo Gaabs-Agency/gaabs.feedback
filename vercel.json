@@ -1,0 +1,12 @@
+{
+  "rewrites": [
+    {
+      "source": "/feedback/:token",
+      "destination": "/feedback.html"
+    },
+    {
+      "source": "/feedback",
+      "destination": "/feedback.html"
+    }
+  ]
+}
