@@ -1,75 +1,133 @@
-const SUPABASE_URL  = "https://ocuxostmzpqlkktmlqsu.supabase.co";
-const SUPABASE_KEY  = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9jdXhvc3RtenBxbGtrdG1scXN1Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3Njk1NjYxNSwiZXhwIjoyMDkyNTMyNjE1fQ.4K_hpHNxOkCu8I4ngcw8Y-tStc8kvRGXeIkjfPW1Ags";
-
-const RELEVANCE_BASE = "https://api-d7b62b.stack.tryrelevance.com/latest";
-const RELEVANCE_AUTH = "d82ca31b-33c0-4b90-ab6b-5a42298cf982:sk-ZjYzMjA3YzQtZDYzMi00NWRmLTkyOTQtMjY4NzMwZTI2MzQy";
-const TOOL_FEEDBACK_SUBMIT = "d7b62b/d82ca31b-33c0-4b90-ab6b-5a42298cf982/662205fe-5806-433a-9b35-142cc338291c";
+const SUPABASE_URL          = process.env.SUPABASE_URL;
+const SUPABASE_KEY          = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const RELEVANCE_BASE        = process.env.RELEVANCE_BASE;
+const RELEVANCE_AUTH        = process.env.RELEVANCE_AUTH;
+const TOOL_FEEDBACK_SUBMIT  = process.env.TOOL_FEEDBACK_SUBMIT;
 
 const sb_headers = {
-  "apikey": SUPABASE_KEY,
+  "apikey":        SUPABASE_KEY,
   "Authorization": `Bearer ${SUPABASE_KEY}`,
-  "Content-Type": "application/json"
+  "Content-Type":  "application/json",
+  "Prefer":        "return=representation"
 };
 
 export default async function handler(req, res) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Origin", "https://gaabsfeedback.vercel.app");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-
   if (req.method === "OPTIONS") return res.status(200).end();
 
   const { action } = req.query;
 
   try {
 
-    // GET SESSION — direkt aus Supabase
+    // ── GET SESSION ───────────────────────────────────────────────
     if (action === "get_session") {
       const { token } = req.query;
       if (!token) return res.status(400).json({ error: "token missing" });
 
-      const resp = await fetch(
+      const sessResp = await fetch(
         `${SUPABASE_URL}/rest/v1/design_sessions?client_token=eq.${token}&select=*`,
         { headers: sb_headers }
       );
 
-      const data = await resp.json();
-
-      if (!data || data.length === 0) {
-        return res.status(404).json({ error: "Session not found" });
+      if (!sessResp.ok) {
+        const t = await sessResp.text();
+        return res.status(500).json({ error: "Supabase session lookup failed", details: t });
       }
 
+      const data = await sessResp.json();
+      if (!data || data.length === 0) return res.status(404).json({ error: "Session not found" });
       return res.status(200).json(data[0]);
     }
 
-    // SUBMIT FEEDBACK — via Relevance Tool
+    // ── SUBMIT FEEDBACK ───────────────────────────────────────────
     if (action === "submit_feedback") {
-      const body = req.body;
-      const { client_token, keep_text, change_text, unclear_text } = body;
-
+      const { client_token, keep_text, change_text, unclear_text } = req.body;
       if (!client_token) return res.status(400).json({ error: "client_token missing" });
 
-      const resp = await fetch(
-        `${RELEVANCE_BASE}/studios/${TOOL_FEEDBACK_SUBMIT}/trigger_limited`,
+      // 1. Session laden
+      const sessResp = await fetch(
+        `${SUPABASE_URL}/rest/v1/design_sessions?client_token=eq.${client_token}&select=id,client_id,project_id`,
+        { headers: sb_headers }
+      );
+
+      if (!sessResp.ok) {
+        const t = await sessResp.text();
+        return res.status(500).json({ error: "Supabase session lookup failed", details: t });
+      }
+
+      const sessions = await sessResp.json();
+      if (!sessions || sessions.length === 0) {
+        return res.status(404).json({ error: "Session not found" });
+      }
+
+      const session = sessions[0];
+
+      if (!session.client_id || !session.project_id) {
+        return res.status(500).json({ error: "Session missing client_id or project_id" });
+      }
+
+      // 2. Feedback direkt in Supabase schreiben
+      const fbResp = await fetch(
+        `${SUPABASE_URL}/rest/v1/design_feedback`,
         {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": RELEVANCE_AUTH
-          },
+          method:  "POST",
+          headers: sb_headers,
           body: JSON.stringify({
-            params: {
-              client_token,
-              keep_text:    keep_text    || "",
-              change_text:  change_text  || "",
-              unclear_text: unclear_text || "",
-              supabase_url: SUPABASE_URL
-            }
+            session_id:   session.id,
+            client_id:    session.client_id,
+            project_id:   session.project_id,
+            keep_text:    keep_text    || null,
+            change_text:  change_text  || null,
+            unclear_text: unclear_text || null,
+            status:       "new"
           })
         }
       );
 
-      const data = await resp.json();
-      return res.status(200).json(data?.output || {});
+      if (!fbResp.ok) {
+        const t = await fbResp.text();
+        return res.status(500).json({ error: "Feedback save failed", details: t });
+      }
+
+      const fbData = await fbResp.json();
+
+      // 3. KI Kategorisierung async (fire & forget mit Timeout)
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 8000);
+      try {
+        await fetch(
+          `${RELEVANCE_BASE}/studios/${TOOL_FEEDBACK_SUBMIT}/trigger_limited`,
+          {
+            method:  "POST",
+            signal:  controller.signal,
+            headers: {
+              "Content-Type":  "application/json",
+              "Authorization": RELEVANCE_AUTH
+            },
+            body: JSON.stringify({
+              params: {
+                client_token,
+                keep_text:    keep_text    || "",
+                change_text:  change_text  || "",
+                unclear_text: unclear_text || "",
+                supabase_url: SUPABASE_URL
+              }
+            })
+          }
+        );
+      } catch(e) {
+        console.error("KI categorization failed (non-critical):", e.message);
+      } finally {
+        clearTimeout(timeout);
+      }
+
+      return res.status(200).json({
+        status:      "success",
+        message:     "✅ Feedback gespeichert",
+        feedback_id: fbData[0]?.id || null
+      });
     }
 
     return res.status(400).json({ error: "Unknown action" });
