@@ -1,7 +1,7 @@
-const SUPABASE_URL = process.env.feedback_SUPABASE_URL;
-const SUPABASE_KEY = process.env.feedback_SUPABASE_SERVICE_ROLE_KEY;
-const RELEVANCE_BASE = process.env.RELEVANCE_BASE;
-const RELEVANCE_AUTH = process.env.RELEVANCE_AUTH;
+const SUPABASE_URL         = process.env.feedback_SUPABASE_URL;
+const SUPABASE_KEY         = process.env.supabase_SUPABASE_SERVICE_ROLE_KEY;
+const RELEVANCE_BASE       = process.env.RELEVANCE_BASE;
+const RELEVANCE_AUTH       = process.env.RELEVANCE_AUTH;
 const TOOL_FEEDBACK_SUBMIT = process.env.TOOL_FEEDBACK_SUBMIT;
 
 const sb_headers = {
@@ -93,7 +93,7 @@ export default async function handler(req, res) {
 
       const fbData = await fbResp.json();
 
-      // 3. KI Kategorisierung async (fire & forget mit Timeout)
+      // 3. KI Kategorisierung async mit Timeout
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 8000);
       try {
@@ -125,7 +125,7 @@ export default async function handler(req, res) {
 
       return res.status(200).json({
         status:      "success",
-        message:     "✅ Feedback gespeichert",
+        message:     "Feedback gespeichert",
         feedback_id: fbData[0]?.id || null
       });
     }
